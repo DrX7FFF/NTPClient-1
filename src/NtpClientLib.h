@@ -53,51 +53,30 @@ const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
 #endif // NETWORK_TYPE
 #include <Ticker.h>
 
-typedef enum NTPSyncEvent {
-    timeSyncd = 0, // Time successfully got from NTP server
-    noResponse = -1, // No response from server
-    invalidAddress = -2, // Address not reachable
-    requestSent = 1, // NTP request sent, waiting for response
-    errorSending = -3, // An error happened while sending the request
-    responseError = -4, // Wrong response received
-} NTPSyncEvent_t;
-
 typedef enum NTPStatus {
-    syncd = 0, // Time synchronized correctly
-    unsyncd = -1, // Time may not be valid
-    ntpRequested = 1, // NTP request sent, waiting for response
+	requestNTP = 2,				// running, waiting for response
+	requestDNS = 1,				// running, waiting for response
+	syncd = 0,					// Time synchronized correctly
+	unsyncd = -1,				// Time may not be valid
+	errorDNS = -2,				// DNS Error, may be network 
+	errorInvalidAddress = -3,	// Address not reachable
+	errorTimeOutDNS = -4,		// DNS TimeOut
+	errorNoResponse = -5,		// No response from server
+	errorSending = -6,			// An error happened while sending the request
+	errorResponse = -7,			// Wrong response received
+	errorTimeOutNTP = -8		// NTP TimeOut
 } NTPStatus_t; // Only for internal library use
-
-typedef enum DNSStatus {
-	DNS_IDLE = 0, // Idle state
-	DNS_REQUESTED = 1, // DNS resolution requested, waiting for response
-    DNS_SOLVED = 2,
-} DNSStatus_t; // Only for internal library use//
-
-typedef enum ProcessStatus {
-	PROCESS_IDLE = 0,		// Idle state
-	PROCESS_DNS = 1,		// DNS resolution requested, waiting for response
-	PROCESS_NTP = 2			// NTP resolution requested, waiting for response
-} ProcessStatus_t; // Only for internal library use//
-
 
 #if defined ARDUINO_ARCH_ESP8266 || defined ARDUINO_ARCH_ESP32
 #include <functional>
-typedef std::function<void (NTPSyncEvent_t)> onSyncEvent_t;
+typedef std::function<void(NTPStatus_t)> onSyncEvent_t;
 #else
-typedef void (*onSyncEvent_t)(NTPSyncEvent_t);
+typedef void(*onSyncEvent_t)(NTPStatus_t);
 #endif
 
 class NTPClient {
 public:
-    /**
-    * Construct NTP client.
-    */
     NTPClient ();
-
-    /**
-    * NTP client Class destructor
-    */
     ~NTPClient ();
     
     /**
@@ -153,13 +132,6 @@ public:
             return "";
         return getNtpServerName ();
     }
-
-    /**
-    * Starts a NTP time request to server. Returns a time in UNIX time format. Normally only called from library.
-    * Kept in public section to allow direct NTP request.
-    * @param[out] Time in UNIX time format.
-    */
-    time_t getTime ();
 
 	void processStart();
     /**
@@ -300,12 +272,6 @@ public:
     time_t getLastNTPSync ();
 
     /**
-    * Get first successful synchronization time after boot.
-    * @param[out] First sync time.
-    */
-    time_t getFirstSync ();
-
-    /**
     * Get configured response timeout for NTP requests.
     * @param[out] NTP Timeout.
     */
@@ -322,7 +288,7 @@ public:
     * @param[in] function with void(NTPSyncEvent_t) or std::function<void(NTPSyncEvent_t)> (only for ESP8266)
     *				NTPSyncEvent_t equals 0 is there is no error
     */
-    void onNTPSyncEvent (onSyncEvent_t handler);
+	void onNTPSyncEvent(onSyncEvent_t handler);
 
     /**
     * True if current time is inside DST period (aka. summer time). False otherwise of if NTP object has DST
@@ -348,7 +314,6 @@ public:
 protected:
 
     AsyncUDP *udp;              ///< UDP connection object
-    IPAddress ntpServerIPAddress;
     bool _daylight;             ///< Does this time zone have daylight saving?
     int8_t _timeZone = 0;       ///< Keep track of set time zone offset
     int8_t _minutesOffset = 0;   ///< Minutes offset for time zones with decimal numbers
@@ -356,26 +321,21 @@ protected:
     char _ntpServerName[SERVER_NAME_LENGTH];       ///< Name of NTP server on Internet or LAN
     int _shortInterval = DEFAULT_NTP_SHORTINTERVAL;         ///< Interval to set periodic time sync until first synchronization.
     int _longInterval = DEFAULT_NTP_INTERVAL;          ///< Interval to set periodic time sync
-	int _nextInterval = 0;      ///< Last interval to set periodic time sync
+	int _nextInterval = DEFAULT_NTP_SHORTINTERVAL;      ///< Last interval to set periodic time sync
 	time_t _lastSyncd = 0;      ///< Stored time of last successful sync
     uint16_t ntpTimeout = 1500; ///< Response timeout for NTP requests
-    onSyncEvent_t onSyncEvent;  ///< Event handler callback
+	onSyncEvent_t onSyncEvent;  ///< Event handler callback
 
-    NTPStatus_t status = unsyncd; ///< Sync status
-    DNSStatus_t dnsStatus = DNS_IDLE; ///< DNS request status
-	ProcessStatus_t processStatus = PROCESS_IDLE; ///<Status du process NTP
-    Ticker responseTimer;       ///< Timer to trigger response timeout
-    Ticker responseTimer2;       ///< Timer to trigger response timeout
-	Ticker timeOutDNS;
-	Ticker timeOutNTP;
+	NTPStatus_t status = unsyncd;
+	Ticker tickTimeoutDNS;
+	Ticker tickTimeoutNTP;
 	Ticker processTimer;
 
                                 /**
                                 * Get packet response and update time as of its data
                                 * @param[in] UDP response packet.
                                 */
-    void processPacket (AsyncUDPPacket& packet);
-
+	void updateStatus(NTPStatus_t newstatus);
     /**
     * Send NTP request to server
     * @param[in] UDP connection.
@@ -384,24 +344,18 @@ protected:
     boolean sendNTPpacket (AsyncUDP *udp);
 
     /**
-    * Process internal state in case of a response timeout. If a response comes later is is asumed as non valid.
-    */
-    void ICACHE_RAM_ATTR processRequestTimeout ();
-
-    /**
     * Static method for Ticker argument.
     */
-    static void ICACHE_RAM_ATTR s_processRequestTimeout (void* arg);
+	static void s_onDNSFound(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
+	void onDNSFound(const ip_addr_t *ipaddr);
+	static void ICACHE_RAM_ATTR s_onDNSTimeout(void* arg);
+	void onDNSTimeout();
 
-    static void s_dnsFound (const char *name, const ip_addr_t *ipaddr, void *callback_arg);
-    void dnsFound (const ip_addr_t *ipaddr);
-    static void ICACHE_RAM_ATTR s_processDNSTimeout (void* arg);
-    void processDNSTimeout ();
+//	static void s_packetReceive(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
+	void packetReceive(AsyncUDPPacket& packet);
+	static void ICACHE_RAM_ATTR s_onNTPTimeout(void* arg);
+	void onNTPTimeout();
 
-	static void s_dnsFound2(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
-	void dnsFound2(const ip_addr_t *ipaddr);
-	static void ICACHE_RAM_ATTR s_dnsTimeout(void* arg);
-	void dnsTimeout();
 
 	void processNTP(const ip_addr_t *ipaddr);
 
@@ -409,7 +363,7 @@ protected:
     * Function that gets time from NTP server and convert it to Unix time format
     * @param[out] Time form NTP in Unix Time Format.
     */
-    static time_t s_getTime ();
+//    static time_t s_getTime ();
 
     /**
     * Calculates the daylight saving for a given date.
@@ -429,8 +383,6 @@ protected:
     * @param[out] Result digit with leading 0 if needed.
     */
     //String printDigits(int digits);
-
-	void notifyEvent(NTPSyncEvent_t requestSent);
 	
 		
 

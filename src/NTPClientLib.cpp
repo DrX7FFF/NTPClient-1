@@ -65,165 +65,82 @@ bool NTPClient::setTimeZone (int8_t timeZone, int8_t minutes) {
     return false;
 }
 
-void NTPClient::s_dnsFound (const char *name, const ip_addr_t *ipaddr, void *callback_arg) {
-    reinterpret_cast<NTPClient*>(callback_arg)->dnsFound (ipaddr);
+void NTPClient::s_onDNSFound(const char *name, const ip_addr_t *ipaddr, void *callback_arg) {
+	reinterpret_cast<NTPClient*>(callback_arg)->onDNSFound(ipaddr);
 }
 
-#if NETWORK_TYPE == NETWORK_ESP8266
-IPAddress getIPClass (const ip_addr_t *ipaddr) {
-	if (!ipaddr)
-		return IPAddress (0, 0, 0, 0);
-	return IPAddress (ipaddr->addr);
-}
-
-void NTPClient::dnsFound (const ip_addr_t *ipaddr) {
-    dnsStatus = DNS_SOLVED;
-    responseTimer2.detach ();
-    ntpServerIPAddress = getIPClass (ipaddr);
-    DEBUGLOG ("%s - %s\n", __FUNCTION__, ntpServerIPAddress.toString ().c_str ());
-    if (ipaddr != NULL && ntpServerIPAddress != (uint32_t)(0)) {
-       time_t newTime = getTime();
-	   DEBUGLOG ("%s - Get time\n", __FUNCTION__);
-       if (newTime) setTime(newTime);
-    }
-}
-
-void  NTPClient::processDNSTimeout () {
-    status = unsyncd;
-    dnsStatus = DNS_IDLE;
-    responseTimer2.detach ();
-    DEBUGLOG ("%s - DNS response Timeout\n", __FUNCTION__);
-	notifyEvent(invalidAddress);
-}
-
-void ICACHE_RAM_ATTR NTPClient::s_processDNSTimeout (void* arg) {
-    reinterpret_cast<NTPClient*>(arg)->processDNSTimeout ();
-}
-#endif
-
-void NTPClient::s_dnsFound2(const char *name, const ip_addr_t *ipaddr, void *callback_arg) {
-	reinterpret_cast<NTPClient*>(callback_arg)->dnsFound2(ipaddr);
-}
-
-void NTPClient::dnsFound2(const ip_addr_t *ipaddr) {
-	timeOutDNS.detach();
-	DEBUGLOG("%s - Event DNS Found (%d)\n", __FUNCTION__, processStatus);
+void NTPClient::onDNSFound(const ip_addr_t *ipaddr) {
+	tickTimeoutDNS.detach();
 	if (!ipaddr) {
-		processStatus = PROCESS_IDLE;
-		DEBUGLOG("%s - ERROR Event DNS NOT Found(%d)\n", __FUNCTION__, processStatus);
+		updateStatus(errorInvalidAddress);
+		DEBUGLOG("%s - ERROR Event DNS NOT Found\n", __FUNCTION__);
 	}
-	else {
+	else
 		processNTP(ipaddr);
-	}
 }
 
-void ICACHE_RAM_ATTR NTPClient::s_dnsTimeout(void* arg) {
-	reinterpret_cast<NTPClient*>(arg)->dnsTimeout();
+void ICACHE_RAM_ATTR NTPClient::s_onDNSTimeout(void* arg) {
+	reinterpret_cast<NTPClient*>(arg)->onDNSTimeout();
 }
 
-void  NTPClient::dnsTimeout() {
-	timeOutDNS.detach();
-	DEBUGLOG("%s - DNS response Timeout (%d)\n", __FUNCTION__, processStatus);
-	//	status = unsyncd;
-//	notifyEvent(invalidAddress);
-	processStatus = PROCESS_IDLE;
+void NTPClient::onDNSTimeout() {
+	tickTimeoutDNS.detach();
+	DEBUGLOG("%s - DNS response Timeout\n", __FUNCTION__);
+	updateStatus(errorTimeOutDNS);
+}
+
+void ICACHE_RAM_ATTR NTPClient::s_onNTPTimeout(void* arg) {
+	reinterpret_cast<NTPClient*>(arg)->onNTPTimeout();
+}
+
+void NTPClient::onNTPTimeout() {
+	tickTimeoutNTP.detach();
+	DEBUGLOG("NTP response Timeout\n");
+	updateStatus(errorTimeOutNTP);
 }
 
 void NTPClient::processStart() {
-	if (processStatus != PROCESS_IDLE) {
-		DEBUGLOG("%s - Busy ... (%d)\n", __FUNCTION__, processStatus);
+	if (status >0) {
+		DEBUGLOG("%s - Busy ...\n", __FUNCTION__);
 		return;
 	}
+	uint16_t dnsTimeout = 5000;
 
-	processStatus = PROCESS_DNS;
+	updateStatus(requestDNS);
 	ip_addr_t ipaddr;
-	err_t error = dns_gethostbyname(getNtpServerName().c_str(), &ipaddr, (dns_found_callback)&s_dnsFound2, this);
+	err_t error = dns_gethostbyname(getNtpServerName().c_str(), &ipaddr, (dns_found_callback)&s_onDNSFound, this);
 	switch (error) {
 	case ERR_OK:
-		DEBUGLOG("%s - Direct DNS Found (%d)\n", __FUNCTION__, processStatus);
 		processNTP(&ipaddr);
 		break;
 	case ERR_INPROGRESS:
-		DEBUGLOG("%s - DNS requested ... (%d)\n", __FUNCTION__, processStatus);
 		// TimeOut de 5000 ms
-		timeOutDNS.once_ms(5000, &NTPClient::s_dnsTimeout, static_cast<void*>(this));
+		tickTimeoutDNS.once_ms(dnsTimeout, &NTPClient::s_onDNSTimeout, static_cast<void*>(this));
 		break;
 	default:
-		processStatus = PROCESS_IDLE;
-		DEBUGLOG("%s - Error abort code : %d (%d)\n", __FUNCTION__, error, processStatus);
+		updateStatus(errorDNS);
+		DEBUGLOG("%s - Error abort code : %d\n", __FUNCTION__, error);
 	}
 }
 
 void NTPClient::processNTP(const ip_addr_t *ipaddr) {
-	processStatus = PROCESS_NTP;
-	IPAddress ntpIP = IPAddress(ipaddr);
-	DEBUGLOG("%s - Send NTP Query to %s (%d)\n", __FUNCTION__, ntpIP.toString().c_str(), processStatus);
-	processStatus = PROCESS_IDLE;
-	DEBUGLOG("%s - Fin NTP (%d)\n", __FUNCTION__,  processStatus);
-}
-
-time_t NTPClient::getTime () {
-	setNextInterval(getShortInterval());
-
-#if NETWORK_TYPE == NETWORK_ESP8266
-    err_t error = ERR_OK;
-    uint16_t dnsTimeout = 5000;
-    ip_addr_t ipaddress;
-    DEBUGLOG ("%s\n", __FUNCTION__);
-    if (dnsStatus == DNS_IDLE)
-    {
-        DEBUGLOG ("%s - Resolving DNS of %s\n", __FUNCTION__, getNtpServerName ().c_str ());
-        error = dns_gethostbyname (getNtpServerName ().c_str (), &ipaddress, (dns_found_callback)&s_dnsFound, this);
-        DEBUGLOG ("%s - DNS result: %d\n", __FUNCTION__, (int)error);
-        if (error == ERR_INPROGRESS) {
-            dnsStatus = DNS_REQUESTED;
-            DEBUGLOG ("%s - DNS Resolution in progress\n", __FUNCTION__);
-            responseTimer2.once_ms (dnsTimeout, &NTPClient::s_processDNSTimeout, static_cast<void*>(this));
-            return 0;
-        } else if (error == ERR_OK) {
-            dnsStatus = DNS_SOLVED;
-            ntpServerIPAddress = getIPClass (&ipaddress);
-		} else {
-			DEBUGLOG ("%s - DNS Resolution error\n", __FUNCTION__);
-			return 0;
+	if (udp->connect(ipaddr, DEFAULT_NTP_PORT)) {
+		udp->onPacket(std::bind(&NTPClient::packetReceive, this, _1));
+		if (sendNTPpacket(udp)) {
+			DEBUGLOG("%s - Send NTP Query to %s\n", __FUNCTION__, IPAddress(ipaddr).toString().c_str());
+			updateStatus(requestNTP);
+			tickTimeoutNTP.once_ms(ntpTimeout, &NTPClient::s_onNTPTimeout, static_cast<void*>(this));
 		}
-    }
-    DEBUGLOG ("%s - DNS name IP solved: %s\n", __FUNCTION__, ntpServerIPAddress.toString ().c_str ());
-    if (error == ERR_OK && dnsStatus == DNS_SOLVED) {
-        dnsStatus = DNS_IDLE;
-#elif NETWORK_TYPE == NETWORK_ESP32
-    int error = WiFi.hostByName (getNtpServerName ().c_str (), ntpServerIPAddress);
-    if (error) {
-#endif
-        DEBUGLOG ("%s - Starting UDP. IP: %s\n", __FUNCTION__, ntpServerIPAddress.toString ().c_str ());
-		if (ntpServerIPAddress == (uint32_t)(0)) {
-			DEBUGLOG ("%s - IP address unset. Aborting.\n", __FUNCTION__);
-			return 0;
+		else {
+			// Network Non dispo
+			DEBUGLOG("%s - Error NTP request \n", __FUNCTION__);
+			updateStatus(errorSending);
 		}
-        if (udp->connect (ntpServerIPAddress, DEFAULT_NTP_PORT)) {
-            udp->onPacket (std::bind (&NTPClient::processPacket, this, _1));
-            DEBUGLOG ("%s - Sending UDP packet\n", __FUNCTION__);
-            if (sendNTPpacket (udp)) {
-                DEBUGLOG ("%s - NTP request sent\n", __FUNCTION__);
-                status = ntpRequested;
-                responseTimer.once_ms (ntpTimeout, &NTPClient::s_processRequestTimeout, static_cast<void*>(this));
-				notifyEvent(requestSent);
-                return 0;
-            } else {
-                DEBUGLOG ("%s - NTP request error\n", __FUNCTION__);
-				notifyEvent(errorSending);
-                return 0;
-            }
-        } else {
-			notifyEvent(noResponse);
-            return 0; // return 0 if unable to get the time
-        }
-    } else {
-        DEBUGLOG ("%s - HostByName error %d\n", __FUNCTION__, (int)error);
-		notifyEvent(invalidAddress);
-        return 0; // return 0 if unable to get the time
-    }
-
+	}
+	else {
+		DEBUGLOG("%s - Error No Response\n", __FUNCTION__);
+		updateStatus(errorNoResponse);
+	}
 }
 
 void dumpNTPPacket (byte *data, size_t length) {
@@ -257,9 +174,13 @@ boolean NTPClient::sendNTPpacket (AsyncUDP *udp) {
     ntpPacketBuffer[13] = 0x4E;
     ntpPacketBuffer[14] = 49;
     ntpPacketBuffer[15] = 52;
+
     // all NTP fields have been given values, now
     // you can send a packet requesting a timestamp:
-    ntpPacket.write (ntpPacketBuffer, NTP_PACKET_SIZE);
+	ntpPacket.write(ntpPacketBuffer, NTP_PACKET_SIZE);
+	dumpNTPPacket(ntpPacket.data(), ntpPacket.length());
+	return udp->send(ntpPacket);
+/*
     if (udp->send (ntpPacket)) {
         DEBUGLOG ("\n");
         dumpNTPPacket (ntpPacket.data (), ntpPacket.length ());
@@ -268,60 +189,44 @@ boolean NTPClient::sendNTPpacket (AsyncUDP *udp) {
     } else {
         return false;
     }
+	*/
 }
 
-void NTPClient::processPacket (AsyncUDPPacket& packet) {
-    uint8_t *ntpPacketBuffer;
-    int size;
+void NTPClient::packetReceive(AsyncUDPPacket& packet) {
+	tickTimeoutNTP.detach();
+	uint8_t *ntpPacketBuffer;
 
-    if (status == ntpRequested) {
-        size = packet.length ();
-        if (size >= NTP_PACKET_SIZE) {
-            //timer1_disable ();
-            responseTimer.detach ();
-            ntpPacketBuffer = packet.data ();
-            time_t timeValue = decodeNtpMessage (ntpPacketBuffer);
-            setTime (timeValue);
-            status = syncd;
-			setNextInterval(getLongInterval ());
+	DEBUGLOG("UDP Packet Type: %s, From: %s:%d, To: %s:%d, Length: %u, Data:\n",
+		packet.isBroadcast() ? "Broadcast" : packet.isMulticast() ? "Multicast" : "Unicast",
+		packet.remoteIP().toString().c_str(),
+		packet.remotePort(),
+		packet.localIP().toString().c_str(),
+		packet.localPort(),
+		packet.length());
+	//reply to the client
+	dumpNTPPacket(packet.data(), packet.length());
+
+	if (status == requestNTP) {
+		if (packet.length() >= NTP_PACKET_SIZE) {
+			ntpPacketBuffer = packet.data();
+			time_t timeValue = decodeNtpMessage(ntpPacketBuffer);
+//			setTime(timeValue);
+			updateStatus(syncd);
+//			setNextInterval(getLongInterval());
 			_lastSyncd = timeValue;
-            DEBUGLOG ("Sync frequency set low\n");
-            DEBUGLOG ("Successful NTP sync at %s\n", getTimeDateString (getLastNTPSync ()).c_str ());
-			notifyEvent(timeSyncd);
-        } else {
-            DEBUGLOG ("Response Error\n");
-            status = unsyncd;
-			notifyEvent(responseError);
-        }
-
-    } else {
-        DEBUGLOG ("Unrequested response\n");
-    }
-
-    DEBUGLOG ("UDP packet received\n");
-    DEBUGLOG ("UDP Packet Type: %s, From: %s:%d, To: %s:%d, Length: %u, Data:\n\n",
-        packet.isBroadcast () ? "Broadcast" : packet.isMulticast () ? "Multicast" : "Unicast",
-        packet.remoteIP ().toString ().c_str (),
-        packet.remotePort (),
-        packet.localIP ().toString ().c_str (),
-        packet.localPort (),
-        packet.length ());
-    //reply to the client
-    dumpNTPPacket (packet.data (), packet.length ());
-    DEBUGLOG ("\n");
-}
-
-void ICACHE_RAM_ATTR NTPClient::processRequestTimeout () {
-    status = unsyncd;
-    //timer1_disable ();
-    responseTimer.detach ();
-    DEBUGLOG ("NTP response Timeout\n");
-	notifyEvent(noResponse);
-}
-
-void ICACHE_RAM_ATTR NTPClient::s_processRequestTimeout (void* arg) {
-    NTPClient* self = reinterpret_cast<NTPClient*>(arg);
-    self->processRequestTimeout ();
+//			DEBUGLOG("Sync frequency set low\n");
+//			DEBUGLOG("Successful NTP sync at %s\n", getTimeDateString(getLastNTPSync()).c_str());
+			DEBUGLOG("Successful NTP sync at %d\n", timeValue);
+			//			notifyEvent(timeSyncd);
+		}
+		else {
+			DEBUGLOG("Response Error\n");
+			updateStatus(errorResponse);
+		}
+	}
+	else {
+		DEBUGLOG("Unrequested response\n");
+	}
 }
 
 int8_t NTPClient::getTimeZone () {
@@ -331,10 +236,11 @@ int8_t NTPClient::getTimeZone () {
 int8_t NTPClient::getTimeZoneMinutes () {
     return _minutesOffset;
 }
-
+/*
 time_t NTPClient::s_getTime () {
     return NTP.getTime ();
 }
+*/
 
 bool NTPClient::begin (String ntpServerName, int8_t timeZone, bool daylight, int8_t minutes, AsyncUDP* udp_conn) {
     if (!setNtpServerName (ntpServerName)) {
@@ -345,11 +251,10 @@ bool NTPClient::begin (String ntpServerName, int8_t timeZone, bool daylight, int
         DEBUGLOG ("Time sync not started\r\n");
         return false;
     }
-    if (udp_conn) {
+    if (udp_conn)
         udp = udp_conn;
-    } else if (!udp) { // Check if upd connection was already created
+    else if (!udp) // Check if upd connection was already created
         udp = new AsyncUDP ();
-    }
 
     //_timeZone = timeZone;
     setDayLight (daylight);
@@ -364,7 +269,7 @@ bool NTPClient::begin (String ntpServerName, int8_t timeZone, bool daylight, int
     DEBUGLOG ("Time sync started\r\n");
 
 	setNextInterval(getShortInterval ());
-    setSyncProvider (s_getTime);
+//    setSyncProvider (s_getTime);
 
     return true;
 }
@@ -374,7 +279,7 @@ NTPClient::~NTPClient () {
 }
 
 void NTPClient::stop () {
-    setSyncProvider (NULL);
+//    setSyncProvider (NULL);
     // Free up connection resources
     if (udp) {
         udp->close ();
@@ -475,8 +380,8 @@ time_t NTPClient::getLastNTPSync () {
     return _lastSyncd;
 }
 
-void NTPClient::onNTPSyncEvent (onSyncEvent_t handler) {
-    onSyncEvent = handler;
+void NTPClient::onNTPSyncEvent(onSyncEvent_t handler) {
+	onSyncEvent = handler;
 }
 
 bool NTPClient::summertime (int year, byte month, byte day, byte hour, byte weekday, byte tzHours)
@@ -564,8 +469,10 @@ time_t NTPClient::decodeNtpMessage (uint8_t *messageBuffer) {
     return timeTemp;
 }
 
-void NTPClient::notifyEvent(NTPSyncEvent_t requestSent){
+void NTPClient::updateStatus(NTPStatus_t newstatus) {
+	status = newstatus;
 	if (onSyncEvent)
-		onSyncEvent(requestSent);
+		onSyncEvent(newstatus);
 }
+
 NTPClient NTP;
