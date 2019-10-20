@@ -70,11 +70,9 @@ void NTPClient::s_onDNSFound(const char *name, const ip_addr_t *ipaddr, void *ca
 }
 
 void NTPClient::onDNSFound(const ip_addr_t *ipaddr) {
-	tickTimeoutDNS.detach();
-	if (!ipaddr) {
+	tickTimeout.detach();
+	if (!ipaddr)
 		updateStatus(errorInvalidAddress);
-		DEBUGLOG("%s - ERROR Event DNS NOT Found\n", __FUNCTION__);
-	}
 	else
 		processNTP(ipaddr);
 }
@@ -84,8 +82,7 @@ void ICACHE_RAM_ATTR NTPClient::s_onDNSTimeout(void* arg) {
 }
 
 void NTPClient::onDNSTimeout() {
-	tickTimeoutDNS.detach();
-	DEBUGLOG("%s - DNS response Timeout\n", __FUNCTION__);
+	tickTimeout.detach();
 	updateStatus(errorTimeOutDNS);
 }
 
@@ -94,8 +91,7 @@ void ICACHE_RAM_ATTR NTPClient::s_onNTPTimeout(void* arg) {
 }
 
 void NTPClient::onNTPTimeout() {
-	tickTimeoutNTP.detach();
-	DEBUGLOG("NTP response Timeout\n");
+	tickTimeout.detach();
 	updateStatus(errorTimeOutNTP);
 }
 
@@ -115,7 +111,7 @@ void NTPClient::processStart() {
 		break;
 	case ERR_INPROGRESS:
 		// TimeOut de 5000 ms
-		tickTimeoutDNS.once_ms(dnsTimeout, &NTPClient::s_onDNSTimeout, static_cast<void*>(this));
+		tickTimeout.once_ms(dnsTimeout, &NTPClient::s_onDNSTimeout, static_cast<void*>(this));
 		break;
 	default:
 		updateStatus(errorDNS);
@@ -129,18 +125,13 @@ void NTPClient::processNTP(const ip_addr_t *ipaddr) {
 		if (sendNTPpacket(udp)) {
 			DEBUGLOG("%s - Send NTP Query to %s\n", __FUNCTION__, IPAddress(ipaddr).toString().c_str());
 			updateStatus(requestNTP);
-			tickTimeoutNTP.once_ms(ntpTimeout, &NTPClient::s_onNTPTimeout, static_cast<void*>(this));
+			tickTimeout.once_ms(ntpTimeout, &NTPClient::s_onNTPTimeout, static_cast<void*>(this));
 		}
-		else {
-			// Network Non dispo
-			DEBUGLOG("%s - Error NTP request \n", __FUNCTION__);
+		else
 			updateStatus(errorSending);
-		}
 	}
-	else {
-		DEBUGLOG("%s - Error No Response\n", __FUNCTION__);
+	else
 		updateStatus(errorNoResponse);
-	}
 }
 
 void dumpNTPPacket (byte *data, size_t length) {
@@ -161,7 +152,6 @@ boolean NTPClient::sendNTPpacket (AsyncUDP *udp) {
     AsyncUDPMessage ntpPacket = AsyncUDPMessage ();
 
     uint8_t ntpPacketBuffer[NTP_PACKET_SIZE]; //Buffer to store request message
-                                              // set all bytes in the buffer to 0
     memset (ntpPacketBuffer, 0, NTP_PACKET_SIZE);
     // Initialize values needed to form NTP request
     // (see URL above for details on the packets)
@@ -175,26 +165,15 @@ boolean NTPClient::sendNTPpacket (AsyncUDP *udp) {
     ntpPacketBuffer[14] = 49;
     ntpPacketBuffer[15] = 52;
 
-    // all NTP fields have been given values, now
+	// all NTP fields have been given values, now
     // you can send a packet requesting a timestamp:
 	ntpPacket.write(ntpPacketBuffer, NTP_PACKET_SIZE);
-	dumpNTPPacket(ntpPacket.data(), ntpPacket.length());
+//	dumpNTPPacket(ntpPacket.data(), ntpPacket.length());
 	return udp->send(ntpPacket);
-/*
-    if (udp->send (ntpPacket)) {
-        DEBUGLOG ("\n");
-        dumpNTPPacket (ntpPacket.data (), ntpPacket.length ());
-        DEBUGLOG ("\nUDP packet sent\n");
-        return true;
-    } else {
-        return false;
-    }
-	*/
 }
 
 void NTPClient::packetReceive(AsyncUDPPacket& packet) {
-	tickTimeoutNTP.detach();
-	uint8_t *ntpPacketBuffer;
+	tickTimeout.detach();
 
 	DEBUGLOG("UDP Packet Type: %s, From: %s:%d, To: %s:%d, Length: %u, Data:\n",
 		packet.isBroadcast() ? "Broadcast" : packet.isMulticast() ? "Multicast" : "Unicast",
@@ -208,21 +187,20 @@ void NTPClient::packetReceive(AsyncUDPPacket& packet) {
 
 	if (status == requestNTP) {
 		if (packet.length() >= NTP_PACKET_SIZE) {
-			ntpPacketBuffer = packet.data();
-			time_t timeValue = decodeNtpMessage(ntpPacketBuffer);
-//			setTime(timeValue);
-			updateStatus(syncd);
-//			setNextInterval(getLongInterval());
-			_lastSyncd = timeValue;
-//			DEBUGLOG("Sync frequency set low\n");
-//			DEBUGLOG("Successful NTP sync at %s\n", getTimeDateString(getLastNTPSync()).c_str());
-			DEBUGLOG("Successful NTP sync at %d\n", timeValue);
-			//			notifyEvent(timeSyncd);
+			time_t timeValue = decodeNtpMessage(packet.data());
+			if (timeValue == 0) {
+				DEBUGLOG("Response 0 Error\n");
+				updateStatus(errorResponse);
+			}
+			else {
+				//			setTime(timeValue);
+				_lastSyncd = timeValue;
+				DEBUGLOG("Successful NTP sync at %d\n", timeValue);
+				updateStatus(syncd);
+			}
 		}
-		else {
-			DEBUGLOG("Response Error\n");
+		else
 			updateStatus(errorResponse);
-		}
 	}
 	else {
 		DEBUGLOG("Unrequested response\n");
@@ -425,7 +403,7 @@ bool NTPClient::summertime (int year, byte month, byte day, byte hour, byte week
 }
 
 boolean NTPClient::isSummerTimePeriod (time_t moment) { 
-    return summertime (year (), month (), day (), hour (), weekday (), getTimeZone ());
+    return summertime (year (moment), month (moment), day (moment), hour (moment), weekday (moment), getTimeZone ());
 }
 
 uint16_t NTPClient::getNTPTimeout () {
@@ -447,32 +425,53 @@ time_t NTPClient::decodeNtpMessage (uint8_t *messageBuffer) {
     secsSince1900 |= (unsigned long)messageBuffer[42] << 8;
     secsSince1900 |= (unsigned long)messageBuffer[43];
 
-    DEBUGLOG ("Secs: %lu \n", secsSince1900);
-
-    if (secsSince1900 == 0) {
-        DEBUGLOG ("--Timestamp is Zero\n");
+    if (secsSince1900 == 0)
         return 0;
-    }
+
 #define SEVENTY_YEARS 2208988800UL
     time_t timeTemp = secsSince1900 - SEVENTY_YEARS + _timeZone * SECS_PER_HOUR + _minutesOffset * SECS_PER_MIN;
 
-    if (_daylight) {
-        if (summertime (year (timeTemp), month (timeTemp), day (timeTemp), hour (timeTemp), weekday (timeTemp), _timeZone)) {
+    if (_daylight)
+        if (summertime (year (timeTemp), month (timeTemp), day (timeTemp), hour (timeTemp), weekday (timeTemp), _timeZone))
             timeTemp += SECS_PER_HOUR;
-            DEBUGLOG ("Summer Time\n");
-        } else {
-            DEBUGLOG ("Winter Time\n");
-        }
-    } else {
-        DEBUGLOG ("No daylight\n");
-    }
+
     return timeTemp;
 }
 
 void NTPClient::updateStatus(NTPStatus_t newstatus) {
 	status = newstatus;
+	DEBUGLOG(getStatusString().c_str());
+	DEBUGLOG("\r\n");
 	if (onSyncEvent)
 		onSyncEvent(newstatus);
 }
 
+String NTPClient::getStatusString() {
+	switch (status) {
+	case requestNTP:
+		return "Request NTP pending";
+	case requestDNS :
+		return "Request DNS pending";
+	case syncd:
+		return "Time synchronized correctly";
+	case unsyncd:
+		return "Time not synchronized";
+	case errorDNS:
+		return "Error DNS unreachable";
+	case errorInvalidAddress:
+		return "Error Address unreachable";
+	case errorTimeOutDNS:
+		return "Error DNS TimeOut";
+	case errorNoResponse:
+		return "Error No response from server";
+	case errorSending:
+		return "Error happened while sending the request";
+	case errorResponse:
+		return "Error Wrong response received";
+	case errorTimeOutNTP:
+		return "Error NTP TimeOut";
+	default:
+		return "Error unknown";
+	}
+}
 NTPClient NTP;

@@ -1,7 +1,7 @@
 #ifndef _NtpClientLib_h
 #define _NtpClientLib_h
 
-#define DEBUG_NTPCLIENT //Uncomment this to enable debug messages over serial port
+//#define DEBUG_NTPCLIENT //Uncomment this to enable debug messages over serial port
 
 #include <functional>
 using namespace std;
@@ -311,6 +311,8 @@ public:
     */
     boolean isSummerTimePeriod (time_t moment);
 
+	String getStatusString();
+
 protected:
 
     AsyncUDP *udp;              ///< UDP connection object
@@ -327,8 +329,7 @@ protected:
 	onSyncEvent_t onSyncEvent;  ///< Event handler callback
 
 	NTPStatus_t status = unsyncd;
-	Ticker tickTimeoutDNS;
-	Ticker tickTimeoutNTP;
+	Ticker tickTimeout;
 	Ticker processTimer;
 
                                 /**
