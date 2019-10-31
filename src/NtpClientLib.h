@@ -1,7 +1,7 @@
 #ifndef _NtpClientLib_h
 #define _NtpClientLib_h
 
-#define DEBUG_NTPCLIENT //Uncomment this to enable debug messages over serial port
+//#define DEBUG_NTPCLIENT //Uncomment this to enable debug messages over serial port
 
 #include <functional>
 using namespace std;
@@ -35,7 +35,6 @@ extern "C" {
 #define SERVER_NAME_LENGTH 40
 const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
 
-
 #ifdef ARDUINO_ARCH_ESP8266
 #define NETWORK_TYPE NETWORK_ESP8266
 #elif defined ARDUINO_ARCH_ESP32 || defined ESP32
@@ -58,7 +57,7 @@ typedef enum NTPStatus {
 	requestDNS = 1,				// running, waiting for response
 	syncd = 0,					// Time synchronized correctly
 	unsyncd = -1,				// Time may not be valid
-	errorDNS = -2,				// DNS Error, may be network 
+	errorDNS = -2,				// DNS Error, may be network
 	errorInvalidAddress = -3,	// Address not reachable
 	errorTimeOutDNS = -4,		// DNS TimeOut
 	errorNoResponse = -5,		// No response from server
@@ -78,7 +77,7 @@ class NTPClient {
 public:
     NTPClient ();
     ~NTPClient ();
-    
+
     /**
     * Starts time synchronization.
     * @param[in] NTP server name as String.
@@ -89,230 +88,59 @@ public:
     * @param[out] true if everything went ok.
     */
     bool begin (String ntpServerName = DEFAULT_NTP_SERVER, int8_t timeOffset = DEFAULT_NTP_TIMEZONE, bool daylight = false, int8_t minutes = 0, AsyncUDP* udp_conn = NULL);
-
-    /**
-    * Sets NTP server name.
-    * @param[in] New NTP server name.
-    * @param[out] True if everything went ok.
-    */
-    bool setNtpServerName (String ntpServerName);
-    bool setNtpServerName (char* ntpServerName);
-
-    /**
-    * Sets NTP server name. DEPRECATED, only for compatibility with older versions
-    * @param[in] New NTP server name.
-    * @param[in] Server index (0-2).
-    * @param[out] True if everything went ok.
-    */
-    bool setNtpServerName (String ntpServerName, int idx) {
-        if (idx < 0 || idx > 2)
-            return false;
-        return setNtpServerName (ntpServerName);
-    }
-
-    /**
-    * Gets NTP server name
-    * @param[out] NTP server name.
-    */
-    String getNtpServerName ();
-
-    /**
-    * Gets NTP server name in char array format
-    * @param[out] NTP server name.
-    */
-    char* getNtpServerNamePtr ();
-
-    /**
-    * Gets NTP server name. DEPRECATED, only for compatibility with older versions
-    * @param[in] Server index (0-2).
-    * @param[out] NTP server name.
-    */
-    String getNtpServerName (int idx) {
-        if (idx < 0 || idx > 2)
-            return "";
-        return getNtpServerName ();
-    }
-
 	void processStart();
-    /**
-    * Sets timezone.
-    * @param[in] New time offset in hours (-11 <= timeZone <= +13).
-    * @param[out] True if everything went ok.
-    */
-    bool setTimeZone (int8_t timeZone, int8_t minutes = 0);
-
-    /**
-    * Gets timezone.
-    * @param[out] Time offset in hours (plus or minus).
-    */
-    int8_t getTimeZone ();
-
-    /**
-    * Gets minutes fraction of timezone.
-    * @param[out] Minutes offset (plus or minus) added to hourly offset.
-    */
-    int8_t getTimeZoneMinutes ();
-
-    /**
-    * Sets DST zone.
-    * @param[in] New DST zone (DST_ZONE_EU || DST_ZONE_USA).
-    * @param[out] True if everything went ok.
-    */
-    bool setDSTZone (uint8_t dstZone);
-
-    /**
-    * Gets DST zone.
-    * @param[out] DST zone.
-    */
-    uint8_t getDSTZone ();
-
-    /**
-    * Stops time synchronization.
-    * @param[out] True if everything went ok.
-    */
     void stop ();
 
-    /**
-    * Changes sync period.
-    * @param[in] New interval in seconds.
-    * @param[out] True if everything went ok.
-    */
+    bool setNtpServerName (String ntpServerName);
+    bool setNtpServerName (char* ntpServerName);
+    String getNtpServerName ();
+    char* getNtpServerNamePtr ();
+
+    bool setTimeZone (int8_t timeZone, int8_t minutes = 0);
+    int8_t getTimeZone ();
+    int8_t getTimeZoneMinutes ();
+
+    // Sets DST zone (DST_ZONE_EU || DST_ZONE_USA).
+    bool setDSTZone (uint8_t dstZone);
+    uint8_t getDSTZone ();
+
+    void setDayLight (bool daylight);
+    bool getDayLight ();
+
     bool setInterval (int interval);
-
-    /**
-    * Changes sync period in sync'd and not sync'd status.
-    * @param[in] New interval while time is not first adjusted yet, in seconds.
-    * @param[in] New interval for normal operation, in seconds.
-    * @param[out] True if everything went ok.
-    */
     bool setInterval (int shortInterval, int longInterval);
-
-    /**
-    * Gets sync period.
-    * @param[out] Interval for normal operation, in seconds.
-    */
     int getInterval ();
-
-    /**
-    * Changes sync period not sync'd status.
-    * @param[out] Interval while time is not first adjusted yet, in seconds.
-    */
     int	getShortInterval ();
-
-    /**
-    * Gets sync period.
-    * @param[out] Interval for normal operation in seconds.
-    */
     int	getLongInterval () { return getInterval (); }
 
 	void setNextInterval(int interval);
 	int getNextInterval();
 
-    /**
-    * Set daylight time saving option.
-    * @param[in] true is daylight time savings apply.
-    */
-    void setDayLight (bool daylight);
-
-    /**
-    * Get daylight time saving option.
-    * @param[out] true is daylight time savings apply.
-    */
-    bool getDayLight ();
-
-    /**
-    * Convert current time to a String.
-    * @param[out] String constructed from current time.
-    * TODO: Add internationalization support
-    */
-    String getTimeStr () { return getTimeStr (now ()); }
-
-    /**
-    * Convert a time in UNIX format to a String representing time.
-    * @param[out] String constructed from current time.
-    * @param[in] time_t object to convert to extract time.
-    * TODO: Add internationalization support
-    */
-    String getTimeStr (time_t moment);
-
-    /**
-    * Convert current date to a String.
-    * @param[out] String constructed from current date.
-    * TODO: Add internationalization support
-    */
-    String getDateStr () { return getDateStr (now ()); }
-
-    /**
-    * Convert a time in UNIX format to a String representing its date.
-    * @param[out] String constructed from current date.
-    * @param[in] time_t object to convert to extract date.
-    * TODO: Add internationalization support
-    */
-    String getDateStr (time_t moment);
-
-    /**
-    * Convert current time and date to a String.
-    * @param[out] String constructed from current time.
-    * TODO: Add internationalization support
-    */
-    String getTimeDateString () { return getTimeDateString (now ()); }
-
-    /**
-    * Convert current time and date to a String.
-    * @param[in] time_t object to convert to String.
-    * @param[out] String constructed from current time.
-    * TODO: Add internationalization support
-    */
-    String getTimeDateString (time_t moment);
-
-    /**
-    * Gets last successful sync time in UNIX format.
-    * @param[out] Last successful sync time. 0 equals never.
-    */
-    time_t getLastNTPSync ();
-
-    /**
-    * Get configured response timeout for NTP requests.
-    * @param[out] NTP Timeout.
-    */
+    boolean setNTPTimeout (uint16_t milliseconds);
     uint16_t getNTPTimeout ();
 
-    /**
-    * Configure response timeout for NTP requests.
-    * @param[out] error code. false if faulty.
-    */
-    boolean setNTPTimeout (uint16_t milliseconds);
+    time_t getLastNTPSync ();
 
-    /**
-    * Set a callback that triggers after a sync trial.
-    * @param[in] function with void(NTPSyncEvent_t) or std::function<void(NTPSyncEvent_t)> (only for ESP8266)
-    *				NTPSyncEvent_t equals 0 is there is no error
-    */
 	void onNTPSyncEvent(onSyncEvent_t handler);
+	String getStatusString();
 
-    /**
-    * True if current time is inside DST period (aka. summer time). False otherwise of if NTP object has DST
-    * calculation disabled
-    * @param[out] True = summertime enabled and time in summertime period
-    *			  False = sumertime disabled or time ouside summertime period
-    */
+    String getTimeStr () { return getTimeStr (now ()); }
+    String getTimeStr (time_t moment);
+    String getDateStr () { return getDateStr (now ()); }
+    String getDateStr (time_t moment);
+    String getTimeDateString () { return getTimeDateString (now ()); }
+    String getTimeDateString (time_t moment);
+
     boolean isSummerTime () {
         if (_daylight)
             return isSummerTimePeriod (now ());
         else
             return false;
     }
-
-    /**
-    * True if given time is inside DST period (aka. summer time). False otherwise.
-    * @param[in] time to make the calculation with
-    * @param[out] True = time in summertime period
-    *			  False = time ouside summertime period
-    */
     boolean isSummerTimePeriod (time_t moment);
+    bool summertime (int year, byte month, byte day, byte hour, byte weekday, byte tzHours);
 
 protected:
-
     AsyncUDP *udp;              ///< UDP connection object
     bool _daylight;             ///< Does this time zone have daylight saving?
     int8_t _timeZone = 0;       ///< Keep track of set time zone offset
@@ -327,20 +155,10 @@ protected:
 	onSyncEvent_t onSyncEvent;  ///< Event handler callback
 
 	NTPStatus_t status = unsyncd;
-	Ticker tickTimeoutDNS;
-	Ticker tickTimeoutNTP;
+	Ticker tickTimeout;
 	Ticker processTimer;
 
-                                /**
-                                * Get packet response and update time as of its data
-                                * @param[in] UDP response packet.
-                                */
 	void updateStatus(NTPStatus_t newstatus);
-    /**
-    * Send NTP request to server
-    * @param[in] UDP connection.
-    * @param[out] false in case of any error.
-    */
     boolean sendNTPpacket (AsyncUDP *udp);
 
     /**
@@ -356,52 +174,8 @@ protected:
 	static void ICACHE_RAM_ATTR s_onNTPTimeout(void* arg);
 	void onNTPTimeout();
 
-
 	void processNTP(const ip_addr_t *ipaddr);
-
-    /**
-    * Function that gets time from NTP server and convert it to Unix time format
-    * @param[out] Time form NTP in Unix Time Format.
-    */
-//    static time_t s_getTime ();
-
-    /**
-    * Calculates the daylight saving for a given date.
-    * @param[in] Year.
-    * @param[in] Month.
-    * @param[in] Day.
-    * @param[in] Hour.
-    * @param[in] Weekday (1 for sunday).
-    * @param[in] Time zone offset.
-    * @param[out] true if date and time are inside summertime period.
-    */
-    bool summertime (int year, byte month, byte day, byte hour, byte weekday, byte tzHours);
-
-    /**
-    * Helper function to add leading 0 to hour, minutes or seconds if < 10.
-    * @param[in] Digit to evaluate the need of leading 0.
-    * @param[out] Result digit with leading 0 if needed.
-    */
-    //String printDigits(int digits);
-	
-		
-
-public:
-    /**
-    * Decode NTP response contained in buffer.
-    * @param[in] Pointer to message buffer.
-    * @param[out] Decoded time from message, 0 if error ocurred.
-    */
     time_t decodeNtpMessage (uint8_t *messageBuffer);
-
-private:
-    /**
-    * Sends NTP request packet to given IP address.
-    * @param[in] NTP server's IP address.
-    * @param[out] True if everything went ok.
-    */
-    //bool sendNTPpacket(IPAddress &address);
-//#endif
 };
 
 extern NTPClient NTP;
