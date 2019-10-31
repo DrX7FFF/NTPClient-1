@@ -140,6 +140,8 @@ public:
     boolean isSummerTimePeriod (time_t moment);
     bool summertime (int year, byte month, byte day, byte hour, byte weekday, byte tzHours);
 
+	String getStatusString();
+
 protected:
     AsyncUDP *udp;              ///< UDP connection object
     bool _daylight;             ///< Does this time zone have daylight saving?

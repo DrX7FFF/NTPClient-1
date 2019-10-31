@@ -400,7 +400,11 @@ bool NTPClient::summertime (int year, byte month, byte day, byte hour, byte week
     return false;
 }
 
+<<<<<<< HEAD
 boolean NTPClient::isSummerTimePeriod (time_t moment) {
+=======
+boolean NTPClient::isSummerTimePeriod (time_t moment) { 
+>>>>>>> bcae44eaf088bb6594c14ff7518e74977e57db96
     return summertime (year (moment), month (moment), day (moment), hour (moment), weekday (moment), getTimeZone ());
 }
 
