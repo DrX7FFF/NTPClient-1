@@ -1,7 +1,7 @@
 #ifndef _NtpClientLib_h
 #define _NtpClientLib_h
 
-//#define DEBUG_NTPCLIENT //Uncomment this to enable debug messages over serial port
+#define DEBUG_NTPCLIENT //Uncomment this to enable debug messages over serial port
 
 #include <functional>
 using namespace std;
@@ -22,14 +22,16 @@ extern "C" {
 
 #define DEFAULT_NTP_SERVER "pool.ntp.org" // Default international NTP server. I recommend you to select a closer server to get better accuracy
 #define DEFAULT_NTP_PORT 123 // Default local udp port. Select a different one if neccesary (usually not needed)
+#define DEFAULT_NTP_TIMEOUT 1500 // Default NTP TimeOut
 #define DEFAULT_NTP_INTERVAL 1800 // Default sync interval 30 minutes
 #define DEFAULT_NTP_SHORTINTERVAL 15 // Sync interval when sync has not been achieved. 15 seconds
 #define DEFAULT_NTP_TIMEZONE 0 // Select your local time offset. 0 if UTC time has to be used
 #define MIN_NTP_TIMEOUT 100 // Minumum admisible ntp timeout
 
-#define DST_ZONE_EU             (0)
-#define DST_ZONE_USA            (1)
-#define DST_ZONE_COUNT          (2)
+#define DST_ZONE_NONE           (0)
+#define DST_ZONE_EU             (1)
+#define DST_ZONE_USA            (2)
+#define DST_ZONE_COUNT          (3)
 #define DEFAULT_DST_ZONE        DST_ZONE_EU
 
 #define SERVER_NAME_LENGTH 40
@@ -87,9 +89,10 @@ public:
     * @param[in] UDP connection instance (optional).
     * @param[out] true if everything went ok.
     */
-    bool begin (String ntpServerName = DEFAULT_NTP_SERVER, int8_t timeOffset = DEFAULT_NTP_TIMEZONE, bool daylight = false, int8_t minutes = 0, AsyncUDP* udp_conn = NULL);
-	void processStart();
-    void stop ();
+    bool begin (String ntpServerName = DEFAULT_NTP_SERVER, int8_t timeOffset = DEFAULT_NTP_TIMEZONE, uint8_t DSTZone = DEFAULT_DST_ZONE, int8_t minutes = 0, AsyncUDP* udp_conn = NULL);
+	void start();
+	void stop ();
+	void processDone(NTPStatus_t newStatus);
 
     bool setNtpServerName (String ntpServerName);
     bool setNtpServerName (char* ntpServerName);
@@ -104,15 +107,9 @@ public:
     bool setDSTZone (uint8_t dstZone);
     uint8_t getDSTZone ();
 
-    void setDayLight (bool daylight);
-    bool getDayLight ();
-
-    bool setInterval (int interval);
-    bool setInterval (int shortInterval, int longInterval);
-    int getInterval ();
-    int	getShortInterval ();
-    int	getLongInterval () { return getInterval (); }
-
+    void setInterval (int shortInterval, int longInterval);
+    int	getShortInterval () {return _shortInterval;}
+    int	getLongInterval () {return _longInterval;}
 	void setNextInterval(int interval);
 	int getNextInterval();
 
@@ -122,7 +119,6 @@ public:
     time_t getLastNTPSync ();
 
 	void onNTPSyncEvent(onSyncEvent_t handler);
-	String getStatusString();
 
     String getTimeStr () { return getTimeStr (now ()); }
     String getTimeStr (time_t moment);
@@ -131,20 +127,11 @@ public:
     String getTimeDateString () { return getTimeDateString (now ()); }
     String getTimeDateString (time_t moment);
 
-    boolean isSummerTime () {
-        if (_daylight)
-            return isSummerTimePeriod (now ());
-        else
-            return false;
-    }
-    boolean isSummerTimePeriod (time_t moment);
-    bool summertime (int year, byte month, byte day, byte hour, byte weekday, byte tzHours);
-
-	String getStatusString();
+    bool isSummerTimePeriod (time_t moment);
+    bool isSummerTimePeriod (int year, byte month, byte day, byte hour, byte weekday);
 
 protected:
     AsyncUDP *udp;              ///< UDP connection object
-    bool _daylight;             ///< Does this time zone have daylight saving?
     int8_t _timeZone = 0;       ///< Keep track of set time zone offset
     int8_t _minutesOffset = 0;   ///< Minutes offset for time zones with decimal numbers
     uint8_t _dstZone = DEFAULT_DST_ZONE; ///< Daylight save time zone
@@ -153,19 +140,22 @@ protected:
     int _longInterval = DEFAULT_NTP_INTERVAL;          ///< Interval to set periodic time sync
 	int _nextInterval = DEFAULT_NTP_SHORTINTERVAL;      ///< Last interval to set periodic time sync
 	time_t _lastSyncd = 0;      ///< Stored time of last successful sync
-    uint16_t ntpTimeout = 1500; ///< Response timeout for NTP requests
+    uint16_t ntpTimeout = DEFAULT_NTP_TIMEOUT; ///< Response timeout for NTP requests
 	onSyncEvent_t onSyncEvent;  ///< Event handler callback
 
 	NTPStatus_t status = unsyncd;
 	Ticker tickTimeout;
-	Ticker processTimer;
+	Ticker tickProcess;
 
-	void updateStatus(NTPStatus_t newstatus);
-    boolean sendNTPpacket (AsyncUDP *udp);
+	void updateStatus(NTPStatus_t newStatus);
+    bool sendNTPpacket (AsyncUDP *udp);
 
     /**
     * Static method for Ticker argument.
     */
+	static void ICACHE_RAM_ATTR s_onProcessing(void* arg);
+	void onProcessing();
+
 	static void s_onDNSFound(const char *name, const ip_addr_t *ipaddr, void *callback_arg);
 	void onDNSFound(const ip_addr_t *ipaddr);
 	static void ICACHE_RAM_ATTR s_onDNSTimeout(void* arg);
@@ -177,7 +167,7 @@ protected:
 	void onNTPTimeout();
 
 	void processNTP(const ip_addr_t *ipaddr);
-    time_t decodeNtpMessage (uint8_t *messageBuffer);
+    time_t decodeNtpMessage(uint8_t *messageBuffer);
 };
 
 extern NTPClient NTP;
