@@ -1,7 +1,7 @@
 #ifndef _NtpClientLib_h
 #define _NtpClientLib_h
 
-#define DEBUG_NTPCLIENT //Uncomment this to enable debug messages over serial port
+//#define DEBUG_NTPCLIENT //Uncomment this to enable debug messages over serial port
 
 #include <functional>
 using namespace std;
