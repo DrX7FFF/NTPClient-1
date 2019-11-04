@@ -186,7 +186,7 @@ void NTPClient::packetReceive(AsyncUDPPacket& packet) {
 		packet.localPort(),
 		packet.length());
 	//reply to the client
-	dumpNTPPacket(packet.data(), packet.length());
+	//dumpNTPPacket(packet.data(), packet.length());
 
 	if (status == requestNTP) {
 		if (packet.length() >= NTP_PACKET_SIZE) {
